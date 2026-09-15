@@ -72,7 +72,6 @@ def test_load_existing_rows_missing_file(tmp_path):
 
 def test_dataset_registry_excludes_unsupported_datasets(tmp_path):
     assert set(_EVAL.STANDARD_DATASET_MANIFESTS) == {
-        "geoexp7k-experience-effect-206",
         "geoexp7k-learning",
         "geoexp7k-test",
         "im2gps3k",
@@ -88,6 +87,13 @@ def test_dataset_registry_excludes_unsupported_datasets(tmp_path):
         )
         with pytest.raises(ValueError, match="Unsupported dataset"):
             _EVAL.discover_items(args)
+
+
+def test_online_entry_point_excludes_learning_split():
+    _EVAL.validate_online_datasets("geoexp7k-test,im2gps3k,imageobench-dataset2")
+
+    with pytest.raises(ValueError, match="online inference entry point"):
+        _EVAL.validate_online_datasets("geoexp7k-learning")
 
 
 def test_imageobench_loader_keeps_only_dataset2(tmp_path):

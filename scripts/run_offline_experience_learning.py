@@ -1,10 +1,9 @@
-"""Learn reusable strategy memories by comparing independent run traces offline.
+"""Build an experience library from three GeoExp7K learning-set runs.
 
-This script intentionally does not participate in ``ReactWorkflow``.  It reads
-completed trace directories, groups the same sample across independent runs,
-builds one bounded comparison context per sample, asks the memory-manager model
-for at most one reusable lesson, and persists accepted lessons to the existing
-SQLite/Chroma memory store.
+The script first runs the complete ``learning`` split three times without
+experience retrieval or online writes. It then groups the three independent
+trajectories for every sample, asks the experience model for at most one reusable
+lesson, and persists accepted lessons to the SQLite/Chroma experience store.
 """
 
 from __future__ import annotations
@@ -21,7 +20,11 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
+import run_dataset_eval as dataset_eval  # noqa: E402
 from geoagent.core.config import load_app_config  # noqa: E402
 from geoagent.core.json_utils import extract_json_payload  # noqa: E402
 from geoagent.core.prompt_loader import load_prompt  # noqa: E402
@@ -954,78 +957,50 @@ def _write_summary(output_path: Path, rows: list[dict[str, Any]]) -> Path:
     return summary_path
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Offline contrastive memory learning from independent geolocation traces."
+def _evaluation_args(args: argparse.Namespace, run_dir: Path) -> argparse.Namespace:
+    return argparse.Namespace(
+        dataset_root=args.dataset_root,
+        datasets="geoexp7k-learning",
+        output=str(run_dir / "results.csv"),
+        trace_dir=str(run_dir / "traces"),
+        query=args.query,
+        limit=args.limit,
+        offset=args.offset,
+        resume=args.resume,
+        debug=args.debug,
+        no_color=args.no_color,
+        dry_run=args.dry_run,
+        write_missing=args.write_missing,
+        fail_fast=args.fail_fast,
+        workers=args.workers,
+        memory_mode="off",
+        memory_dir="",
     )
-    parser.add_argument(
-        "--run-dir",
-        action="append",
-        required=True,
-        help="Completed run directory containing traces/. Repeat once per independent run.",
-    )
-    parser.add_argument(
-        "--expected-trajectories",
-        type=int,
-        default=DEFAULT_TRAJECTORY_COUNT,
-        help="Required number of independent trajectories per sample (default: 3).",
-    )
-    parser.add_argument("--memory-dir", required=True, help="Output SQLite/Chroma memory directory.")
-    parser.add_argument(
-        "--output",
-        default=str(ROOT / "outputs" / "memory" / "offline_memory_reflection" / "reviews.jsonl"),
-        help="Append-only per-sample review log.",
-    )
-    parser.add_argument(
-        "--selection-radius-m",
-        type=float,
-        default=DEFAULT_SELECTION_RADIUS_M,
-        help="Radius used only to classify trajectory disagreement, not to define success.",
-    )
-    parser.add_argument(
-        "--max-context-chars",
-        type=int,
-        default=DEFAULT_CONTEXT_CHAR_BUDGET,
-        help="Hard serialized-character limit for each sample's comparison context.",
-    )
-    parser.add_argument("--offset", type=int, default=0)
-    parser.add_argument("--limit", type=int, default=None)
-    parser.add_argument("--resume", action="store_true")
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Build bounded contexts without calling the reviewer or writing episodes/memories.",
-    )
-    parser.add_argument("--fail-fast", action="store_true")
-    return parser.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
-    run_dirs = [Path(value) for value in args.run_dir]
-    if args.expected_trajectories < 2:
-        raise ValueError("--expected-trajectories must be at least 2.")
-    if len(run_dirs) != args.expected_trajectories:
-        raise ValueError(
-            f"Expected {args.expected_trajectories} --run-dir values, got {len(run_dirs)}."
+def run_learning_trajectories(args: argparse.Namespace) -> list[Path]:
+    output_dir = Path(args.output_dir)
+    run_dirs = [output_dir / f"run_{index}" for index in range(1, DEFAULT_TRAJECTORY_COUNT + 1)]
+    selected_runs = run_dirs[:1] if args.dry_run else run_dirs
+    for index, run_dir in enumerate(selected_runs, start=1):
+        print(
+            f"=== GeoExp7K learning trajectory {index}/{DEFAULT_TRAJECTORY_COUNT} ===",
+            flush=True,
         )
+        dataset_eval.run_eval(_evaluation_args(args, run_dir))
+    return run_dirs
+
+
+def run_reflection(args: argparse.Namespace, run_dirs: list[Path]) -> None:
     resolved_run_dirs = [run_dir.resolve() for run_dir in run_dirs]
-    if len(set(resolved_run_dirs)) != len(resolved_run_dirs):
-        raise ValueError("Each --run-dir must identify a different independent run.")
-    run_labels = [run_dir.name for run_dir in resolved_run_dirs]
-    if len(set(run_labels)) != len(run_labels):
-        raise ValueError("Each --run-dir must have a distinct directory name.")
-    if args.max_context_chars < 8_000:
-        raise ValueError("--max-context-chars must be at least 8000.")
-    if args.selection_radius_m <= 0:
-        raise ValueError("--selection-radius-m must be positive.")
-
     groups = load_trajectory_groups(resolved_run_dirs)
-    item_ids = list(groups)[args.offset :]
-    if args.limit is not None:
-        item_ids = item_ids[: args.limit]
+    item_ids = list(groups)
 
-    output_path = Path(args.output)
+    output_path = (
+        Path(args.reviews_output)
+        if args.reviews_output
+        else Path(args.output_dir) / "reviews.jsonl"
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     completed = _read_completed(output_path) if args.resume else set()
     file_mode = "a" if args.resume else "w"
@@ -1036,14 +1011,12 @@ def main() -> None:
         {
             "enabled": True,
             "mode": "learn_only",
-            "storage_dir": str(Path(args.memory_dir).resolve()),
+            "storage_dir": str(Path(args.experience_dir).resolve()),
         }
     )
-    if args.dry_run:
-        memory_config.setdefault("reflection", {})["enrich_ground_truth_context"] = False
     manager = MemoryManager.from_config(app_config)
     if manager is None:
-        raise RuntimeError("Could not initialize the offline memory manager.")
+        raise RuntimeError("Could not initialize the offline experience manager.")
 
     rows: list[dict[str, Any]] = []
     with output_path.open(file_mode, encoding="utf-8") as output_file:
@@ -1057,7 +1030,7 @@ def main() -> None:
                     groups[item_id],
                     selection_radius_m=args.selection_radius_m,
                     max_context_chars=args.max_context_chars,
-                    dry_run=args.dry_run,
+                    dry_run=False,
                 )
             except Exception as exc:  # noqa: BLE001 - isolate per-sample external-model failures
                 row = {
@@ -1079,8 +1052,90 @@ def main() -> None:
             if line.strip()
         ]
     summary_path = _write_summary(output_path, rows)
+    print(f"Experience library: {Path(args.experience_dir).resolve()}")
     print(f"Reviews: {output_path}")
     print(f"Summary: {summary_path}")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Run GeoExp7K learning three times, compare each sample's trajectories, "
+            "and build an offline experience library."
+        )
+    )
+    parser.add_argument(
+        "--dataset-root",
+        default=str(ROOT / "datasets"),
+        help="Root directory containing datasets/GeoExp7k.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=str(ROOT / "outputs" / "experience_learning" / "geoexp7k"),
+        help="Directory for the three trajectory runs and review log.",
+    )
+    parser.add_argument(
+        "--experience-dir",
+        "--memory-dir",
+        dest="experience_dir",
+        default=str(ROOT / "outputs" / "experience" / "geoexp7k"),
+        help="Output directory for the SQLite/Chroma experience library.",
+    )
+    parser.add_argument(
+        "--reviews-output",
+        default="",
+        help="Per-sample review JSONL. Default: OUTPUT_DIR/reviews.jsonl.",
+    )
+    parser.add_argument("--query", default=dataset_eval.DEFAULT_QUERY)
+    parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--offset", type=int, default=0)
+    parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--no-color", action="store_true")
+    parser.add_argument("--write-missing", action="store_true")
+    parser.add_argument("--fail-fast", action="store_true")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate GeoExp7K learning discovery without model calls or experience writes.",
+    )
+    parser.add_argument(
+        "--selection-radius-m",
+        type=float,
+        default=DEFAULT_SELECTION_RADIUS_M,
+        help="Radius used only to classify trajectory disagreement, not to define success.",
+    )
+    parser.add_argument(
+        "--max-context-chars",
+        type=int,
+        default=DEFAULT_CONTEXT_CHAR_BUDGET,
+        help="Hard serialized-character limit for each sample's comparison context.",
+    )
+    return parser.parse_args()
+
+
+def run_pipeline(args: argparse.Namespace) -> None:
+    if args.max_context_chars < 8_000:
+        raise ValueError("--max-context-chars must be at least 8000.")
+    if args.selection_radius_m <= 0:
+        raise ValueError("--selection-radius-m must be positive.")
+    if not args.resume and not args.dry_run:
+        for path in (Path(args.output_dir), Path(args.experience_dir)):
+            if path.is_dir() and any(path.iterdir()):
+                raise FileExistsError(
+                    f"Output directory is not empty: {path}. "
+                    "Use --resume or choose a new directory."
+                )
+    run_dirs = run_learning_trajectories(args)
+    if args.dry_run:
+        print("Dry run complete. No model calls or experience writes were made.")
+        return
+    run_reflection(args, run_dirs)
+
+
+def main() -> None:
+    run_pipeline(parse_args())
 
 
 if __name__ == "__main__":

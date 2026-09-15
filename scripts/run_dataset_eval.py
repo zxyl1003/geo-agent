@@ -166,12 +166,6 @@ def _safe_path_name(value: str) -> str:
 STANDARD_DATASET_MANIFESTS: dict[str, tuple[str, str, str, str]] = {
     "geoexp7k-learning": ("GeoExp7k", "learning_metadata.csv", "", "GeoExp7k"),
     "geoexp7k-test": ("GeoExp7k", "test_metadata.csv", "", "GeoExp7k"),
-    "geoexp7k-experience-effect-206": (
-        "GeoExp7k",
-        "experience_effect_206_metadata.csv",
-        "",
-        "GeoExp7k",
-    ),
     "im2gps3k": ("im2gps3ktest", "im2gps3ktest.csv", "images", ""),
     "imageobench-dataset2": (
         "IMAGEOBench",
@@ -181,12 +175,12 @@ STANDARD_DATASET_MANIFESTS: dict[str, tuple[str, str, str, str]] = {
     ),
 }
 
-DEFAULT_DATASETS = {
-    "geoexp7k-learning",
+ONLINE_DATASETS = {
     "geoexp7k-test",
     "im2gps3k",
     "imageobench-dataset2",
 }
+DEFAULT_DATASETS = ONLINE_DATASETS
 
 
 def iter_standard(
@@ -266,6 +260,19 @@ def discover_items(args: argparse.Namespace) -> list[EvalItem]:
     if args.limit is not None:
         items = items[: args.limit]
     return items
+
+
+def validate_online_datasets(value: str) -> None:
+    selected = set(parse_csv_list(value))
+    if not selected or selected == {"all"}:
+        return
+    unsupported = selected - ONLINE_DATASETS
+    if unsupported:
+        raise ValueError(
+            "The online inference entry point supports only "
+            "geoexp7k-test, im2gps3k, imageobench-dataset2, or all. "
+            f"Unsupported: {', '.join(sorted(unsupported))}"
+        )
 
 
 def configure_memory(app_config: AppConfig, args: argparse.Namespace) -> None:
@@ -887,15 +894,14 @@ def run_eval(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run non-interactive geolocation evaluation on local datasets.")
+    parser = argparse.ArgumentParser(description="Run online GeoAgent inference on supported test datasets.")
     parser.add_argument("--dataset-root", default=str(ROOT / "datasets"), help="Root directory containing downloaded datasets.")
     parser.add_argument(
         "--datasets",
         default="all",
         help=(
-            "Comma-separated list: geoexp7k-learning,geoexp7k-test,"
-            "geoexp7k-experience-effect-206,"
-            "im2gps3k,imageobench-dataset2,all."
+            "Comma-separated list: geoexp7k-test,im2gps3k,"
+            "imageobench-dataset2,all."
         ),
     )
     parser.add_argument("--output", default=str(ROOT / "outputs" / "results" / "dataset_eval_results.csv"), help="Output CSV path.")
@@ -911,17 +917,25 @@ def main() -> None:
     parser.add_argument("--fail-fast", action="store_true", help="Stop at the first per-item error.")
     parser.add_argument("--workers", type=int, default=1, help="Number of parallel workers. Default 1 (sequential). Use 4-8 for network-bound speedup.")
     parser.add_argument(
+        "--experience-mode",
         "--memory-mode",
-        choices=["off", "config", "retrieve_only", "learn_only", "full"],
+        dest="memory_mode",
+        choices=["off", "retrieve_only"],
         default="off",
-        help="External experience memory mode. Use full for benchmark memory learning/retrieval; default keeps baseline unchanged.",
+        help="Experience-library mode. Use retrieve_only for frozen-library evaluation.",
     )
     parser.add_argument(
+        "--experience-dir",
         "--memory-dir",
+        dest="memory_dir",
         default="",
-        help="Directory for SQLite/Chroma memory files; required when memory is enabled.",
+        help="Directory containing the SQLite/Chroma experience library.",
     )
     args = parser.parse_args()
+    try:
+        validate_online_datasets(args.datasets)
+    except ValueError as exc:
+        parser.error(str(exc))
     run_eval(args)
 
 

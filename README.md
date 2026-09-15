@@ -17,11 +17,12 @@
 - `geoagent/core/`: config loading, registries, shared schemas, logging, exceptions.
 - `geoagent/state/`: unified task state.
 - `geoagent/models/`: LLM/VLM clients for OpenAI-compatible endpoints.
-- `geoagent/tools/`: base tool interface plus vision/search/POI/map/user tools.
-- `geoagent/agents/`: perception, Brain, evidence review, memory management, and human intervention agents.
+- `geoagent/tools/`: vision, search, POI, geocoding, and map-verification tools.
+- `geoagent/agents/`: multimodal Brain and experience-management agents.
 - `geoagent/memory/`: SQLite/Chroma experience storage, retrieval, reflection, and consolidation.
 - `geoagent/workflows/`: ReAct workflow orchestration.
-- `scripts/`: CLI entry points.
+- `scripts/`: exactly three CLI entry points for offline experience learning,
+  online dataset inference, and single-image inference.
 - `tests/`: automated tests.
 
 ## Install
@@ -31,17 +32,11 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Install the experience-memory dependency only when that subsystem is needed:
+Install the experience-library dependency for offline learning or inference with
+experience retrieval:
 
 ```bash
 pip install ".[memory]"
-```
-
-The optional GeoCLIP evaluator additionally requires the visual dependencies and
-the official `geoclip` package:
-
-```bash
-pip install ".[visual]" geoclip
 ```
 
 On Windows PowerShell:
@@ -60,8 +55,7 @@ BRAIN_API_KEY=
 BRAIN_BASE_URL=
 BRAIN_MODEL=
 
-# Memory-writing review model. Called when memory is enabled to extract reusable
-# memories from completed episodes. If omitted, the memory manager reuses BRAIN_*.
+# Experience-learning model. If omitted, the experience agent reuses BRAIN_*.
 MEMORY_MANAGER_API_KEY=
 MEMORY_MANAGER_BASE_URL=
 MEMORY_MANAGER_MODEL=
@@ -87,7 +81,7 @@ Model roles:
 model names, temperature, and max token limits. There is no separate VLM role or
 `VLM_*` configuration; all visual model calls use the Brain configuration.
 
-## Run Demo
+## Single-Image Inference
 
 ```bash
 python scripts/run_single_image.py --image-path path/to/image.jpg --query "Where is this image taken?"
@@ -106,15 +100,40 @@ Use `--no-color` when you want copyable logs without ANSI color codes.
 
 Runtime logs are also written to `logs/YYYY-MM-DD/log.txt`, for example `logs/2026-05-20/log.txt`. The directory and file name are configured in `configs/system.yaml` under `logging.file_root` and `logging.file_name`.
 
-To clean an already copied debug log:
+Run with a frozen experience library:
 
 ```bash
-python scripts/clean_log.py demo_logs.txt
+python scripts/run_single_image.py --image-path path/to/image.jpg --experience-mode retrieve_only --experience-dir outputs/experience/geoexp7k
 ```
 
-## Dataset Batch Evaluation
+## Offline Experience Learning
 
-`scripts/run_dataset_eval.py` supports GeoExp7K, Im2GPS3K, and IMAGEO-Bench dataset2, runs a non-interactive workflow, and writes one CSV row per image. The CSV separates prediction levels into `pred_continent`, `pred_country`, `pred_region`, `pred_city`, `pred_street`, `pred_poi`, and `pred_coordinates`, with longitude and latitude in `pred_longitude` / `pred_latitude`.
+`scripts/run_offline_experience_learning.py` is the only experience-learning
+entry point. One command performs the complete pipeline:
+
+1. Run the GeoExp7K `learning` split three independent times with experience
+   retrieval and online writing disabled.
+2. Save complete traces under `run_1/`, `run_2/`, and `run_3/`.
+3. Compare the three trajectories for each sample.
+4. Ask the experience model to extract a reusable lesson, then validate, merge,
+   deduplicate, and persist accepted lessons to SQLite and Chroma.
+
+```bash
+python scripts/run_offline_experience_learning.py --dataset-root datasets --output-dir outputs/experience_learning/geoexp7k --experience-dir outputs/experience/geoexp7k --workers 4 --resume
+```
+
+Use `--limit` for a small trial and `--dry-run` to verify dataset discovery
+without model calls. `--resume` resumes both the three inference runs and the
+per-sample experience review log.
+
+## Online Dataset Inference
+
+`scripts/run_dataset_eval.py` supports only GeoExp7K `test`, Im2GPS3K, and
+IMAGEO-Bench dataset2. It runs a non-interactive workflow and writes one CSV row
+per image. The CSV separates prediction levels into `pred_continent`,
+`pred_country`, `pred_region`, `pred_city`, `pred_street`, `pred_poi`, and
+`pred_coordinates`, with longitude and latitude in `pred_longitude` /
+`pred_latitude`.
 
 Run a small smoke evaluation first:
 
@@ -130,64 +149,13 @@ python scripts/run_dataset_eval.py --datasets all --resume --trace-dir outputs/e
 
 Missing local image files are skipped by default; pass `--write-missing` if you want missing-image metadata rows in the CSV.
 
-## Direct-VLM Batch Baselines
-
-`scripts/run_batch_vlm_eval.py` evaluates a vision-language model directly from
-the image and a fixed prompt. It does not construct the GeoAgent workflow and
-does not expose tools, agents, or external memory. Dataset discovery, ground
-truth fields, distance thresholds, and the main CSV columns are shared with
-`run_dataset_eval.py`, while provider/model/job IDs and the raw model output are
-added for auditability.
-
-Alibaba Cloud Model Studio is the first implemented provider. Its Batch API uses
-the OpenAI-compatible Files/Batches workflow and currently limits one input
-JSONL file to 50,000 requests / 500 MB and one line to 1 MB. Configure `.env`:
-
-```dotenv
-BATCH_PROVIDER=aliyun
-BATCH_API_KEY=your-model-studio-key
-BATCH_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-BATCH_MODEL=qwen3-vl-plus
-```
-
-Run the stages separately so a long asynchronous job can be resumed:
+Run online inference with a frozen experience library:
 
 ```bash
-python scripts/run_batch_vlm_eval.py --action prepare --datasets imageobench-dataset2 --limit 100 --run-dir outputs/batch_vlm/qwen3_vl_plus
-python scripts/run_batch_vlm_eval.py --action submit --run-dir outputs/batch_vlm/qwen3_vl_plus
-python scripts/run_batch_vlm_eval.py --action status --run-dir outputs/batch_vlm/qwen3_vl_plus
-python scripts/run_batch_vlm_eval.py --action wait --run-dir outputs/batch_vlm/qwen3_vl_plus
-python scripts/run_batch_vlm_eval.py --action collect --run-dir outputs/batch_vlm/qwen3_vl_plus
+python scripts/run_dataset_eval.py --datasets geoexp7k-test --experience-mode retrieve_only --experience-dir outputs/experience/geoexp7k --workers 4 --resume
 ```
 
-`--action run` performs all five stages. `prepare` is offline and does not need
-an API key. Every remote file ID, batch ID, status, output/error file, prompt
-snapshot, and non-secret request setting is persisted in `manifest.json`.
-Repeated `submit` calls skip chunks that already have remote IDs.
-
-Local images use Base64 by default. Because Base64 expands the request and the
-Alibaba input line limit is 1 MB, `BATCH_IMAGE_MAX_EDGE=2048` explicitly
-re-encodes local inputs as JPEG and downsizes a longer edge above 2048 pixels;
-the edge and quality settings are recorded in the manifest. For an exact,
-unmodified input image, host the dataset on HTTP(S) or OSS and use:
-
-```dotenv
-BATCH_IMAGE_MODE=url
-BATCH_IMAGE_BASE_URL=https://your-image-host.example/datasets
-```
-
-The URL is formed from the image path relative to `--dataset-root`. Oversized,
-missing, or unreadable inputs are never silently dropped: they are written as
-`input_error` rows and excluded from submission. Set `BATCH_ENABLE_THINKING=false`
-when a supported Qwen model would otherwise enable paid thinking tokens.
-
-For another vendor that implements the same OpenAI Files/Batches protocol, set
-`BATCH_PROVIDER=openai_compatible` and change `BATCH_API_KEY`,
-`BATCH_BASE_URL`, `BATCH_MODEL`, and the configurable endpoint/path/auth fields.
-A vendor with a different batch protocol needs a new adapter in
-`geoagent/batch/provider.py`; changing only the URL is not sufficient.
-
-## External Experience Memory
+## Experience Library
 
 The optional memory subsystem learns reusable geolocation strategies and failure
 warnings, not place-specific facts. SQLite is authoritative and Chroma is the
@@ -196,16 +164,7 @@ initialization, write, and query failures stop the run instead of silently
 changing retrieval behavior. Memory is disabled by default so baseline runs
 remain comparable.
 
-Enable learning and retrieval for a single image:
-
-```bash
-python scripts/run_single_image.py --image-path path/to/image.jpg --memory-mode full --memory-dir outputs/my_experiment/memory
-```
-
-For experience-order dataset experiments, use `--memory-mode full --workers 1`.
-Parallel workers do not provide a deterministic see-one-example-then-update order.
-Use `retrieve_only` for a frozen-memory evaluation and `learn_only` to populate a
-store without exposing retrieved memories to Brain. In `retrieve_only` and `full`,
+Use `retrieve_only` for frozen-library evaluation. In `retrieve_only` and `full`,
 the React workflow retrieves stored strategy memories directly through
 `MemoryManager` at `post_initial_reasoning` and `pre_final_answer`; configure
 either checkpoint independently under `memory_checkpoints` in
@@ -225,7 +184,8 @@ empty memory directory rather than reusing a lifecycle-era SQLite database.
 
 ## Workflows
 
-`react` is the only workflow. It runs VLM perception first, then enters an LLM-driven loop:
+`react` is the only workflow. Brain performs one initial multimodal perception
+pass, then enters an LLM-driven loop:
 
 1. `BrainAgent` reads compact state and decides the next action.
 2. `ReactWorkflow` validates and executes the requested tool.
@@ -237,7 +197,11 @@ Final answers are hierarchical, but a successful localization must include both 
 
 All public `lat`/`lon` fields in tool results, hypotheses, final answers, and evaluation CSVs are normalized to WGS84. Provider-native coordinates from Baidu are preserved only as `raw_lat`, `raw_lon`, and `raw_coordinate_system` inside tool results.
 
-For visual follow-up, Brain can call `visual_reanalysis`. It sends the image back to the VLM with a focused question such as "inspect the upper-left street sign" or "check road markings and vehicle details". Targeted VLM reanalysis is the preferred second-pass visual tool.
+For visual follow-up, Brain can call `visual_reanalysis`. It sends the image back
+to the Brain model with a focused question such as "inspect the upper-left street
+sign" or "check road markings and vehicle details". The image is not resent on
+every reasoning turn; targeted reanalysis is used only when new visual evidence
+could materially change the decision.
 
 Brain is constrained to the configured tool registry. If it requests an unknown tool, the workflow rejects that request before execution and returns an observation listing the available tools, so the next Brain turn can recover without calling a nonexistent API. Geocoding and reverse geocoding go through the unified `geocode` / `reverse_geocode` tools, which route providers internally and hide the details from the Brain: mainland China uses Baidu Maps (`BAIDU_MAPS_API_KEY`), international uses LocationIQ (`LOCATIONIQ_KEY`) with Google Maps Geocoding (`GOOGLE_MAPS_API_KEY`) as fallback on failure or empty results. POI search routes internally too: mainland China -> Baidu, international -> Serper Places.
 

@@ -74,7 +74,6 @@ def test_preferred_map_provider_falls_back_when_china_provider_has_no_key(monkey
     # No China provider has a key -> fall back to default (google).
     assert preferred_map_provider(config, state) == "google"
 
-
 def test_map_verification_keeps_baidu_without_key(monkeypatch):
     """Baidu street-view/tile verification uses public endpoints (no key), so it
     must stay available for map_verification even without BAIDU_MAPS_API_KEY."""
@@ -95,33 +94,3 @@ def test_map_verification_keeps_baidu_without_key(monkeypatch):
     assert preferred_map_provider(config, state, capability="map_verification") == "baidu"
     # POI semantics (no capability): baidu has no key -> fall back to google.
     assert preferred_map_provider(config, state) == "google"
-
-
-def test_batch_env_loads(monkeypatch):
-    monkeypatch.setenv("BATCH_PROVIDER", "openai_compatible")
-    monkeypatch.setenv("BATCH_API_KEY", "generic-key")
-    monkeypatch.setenv("BATCH_BASE_URL", "https://batch.example/v1")
-    monkeypatch.setenv("BATCH_MODEL", "generic-vlm")
-    monkeypatch.setenv("BATCH_ENABLE_THINKING", "false")
-    config = load_app_config(config_dir="configs", env_file=None)
-
-    assert config.env.batch_provider == "openai_compatible"
-    assert config.env.batch_api_key is not None
-    assert config.env.batch_api_key.get_secret_value() == "generic-key"
-    assert config.env.batch_base_url == "https://batch.example/v1"
-    assert config.env.batch_model == "generic-vlm"
-    assert config.env.batch_enable_thinking is False
-
-
-def test_concurrent_eval_env_loads(monkeypatch):
-    monkeypatch.setenv("EVAL_API_KEY", "eval-key")
-    monkeypatch.setenv("EVAL_MODEL_URL", "https://openrouter.example/v1")
-    monkeypatch.setenv("EVAL_MODEL_NAME", "vendor/eval-model")
-    monkeypatch.setenv("EVAL_PROVIDER", "z-ai")
-    config = load_app_config(config_dir="configs", env_file=None)
-
-    assert config.env.eval_api_key is not None
-    assert config.env.eval_api_key.get_secret_value() == "eval-key"
-    assert config.env.eval_model_url == "https://openrouter.example/v1"
-    assert config.env.eval_model_name == "vendor/eval-model"
-    assert config.env.eval_provider == "z-ai"

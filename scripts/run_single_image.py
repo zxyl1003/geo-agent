@@ -152,15 +152,19 @@ def main() -> None:
     parser.add_argument("--debug", action="store_true", help="Stream model output and print colored step/tool traces.")
     parser.add_argument("--no-color", action="store_true", help="Disable ANSI colors for copyable logs.")
     parser.add_argument(
+        "--experience-mode",
         "--memory-mode",
-        choices=["off", "config", "retrieve_only", "learn_only", "full"],
+        dest="memory_mode",
+        choices=["off", "retrieve_only"],
         default="off",
-        help="External experience memory mode. Default keeps baseline unchanged.",
+        help="Experience-library mode. Default keeps the no-experience baseline.",
     )
     parser.add_argument(
+        "--experience-dir",
         "--memory-dir",
+        dest="memory_dir",
         default="",
-        help="Directory for SQLite/Chroma memory files; required when memory is enabled.",
+        help="Directory containing the SQLite/Chroma experience library.",
     )
     # Ground truth (optional). Provide lat+lon for coordinate-level scoring, or
     # city/country for coarse scoring. When present, success is computed

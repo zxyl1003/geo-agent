@@ -14,10 +14,6 @@ from geoagent.core.exceptions import ConfigError
 
 
 SENSITIVE_ENV_KEYS = (
-    "EVAL_API_KEY",
-    "EVAL_MODEL_URL",
-    "EVAL_MODEL_NAME",
-    "EVAL_PROVIDER",
     "BRAIN_API_KEY",
     "BRAIN_BASE_URL",
     "BRAIN_MODEL",
@@ -34,42 +30,11 @@ SENSITIVE_ENV_KEYS = (
     "LOCATIONIQ_KEY",
     "FORWARD_GEOCODING_URL",
     "REVERSE_GEOCODING_URL",
-    "BATCH_PROVIDER",
-    "BATCH_API_KEY",
-    "BATCH_BASE_URL",
-    "BATCH_MODEL",
-    "BATCH_ENDPOINT",
-    "BATCH_FILES_PATH",
-    "BATCH_BATCHES_PATH",
-    "BATCH_AUTH_HEADER",
-    "BATCH_AUTH_SCHEME",
-    "BATCH_COMPLETION_WINDOW",
-    "BATCH_POLL_INTERVAL_SECONDS",
-    "BATCH_REQUEST_TIMEOUT_SECONDS",
-    "BATCH_MAX_REQUESTS_PER_FILE",
-    "BATCH_MAX_FILE_MB",
-    "BATCH_MAX_LINE_MB",
-    "BATCH_IMAGE_MODE",
-    "BATCH_IMAGE_BASE_URL",
-    "BATCH_IMAGE_MAX_EDGE",
-    "BATCH_IMAGE_JPEG_QUALITY",
-    "BATCH_IMAGE_MIN_PIXELS",
-    "BATCH_IMAGE_MAX_PIXELS",
-    "BATCH_MAX_TOKENS",
-    "BATCH_TEMPERATURE",
-    "BATCH_ENABLE_THINKING",
-    "BATCH_THINKING_BUDGET",
-    "BATCH_RESPONSE_FORMAT",
-    "BATCH_REQUEST_EXTRA_JSON",
     "LOG_LEVEL",
 )
 
 
 class EnvConfig(BaseModel):
-    eval_api_key: SecretStr | None = Field(default=None, repr=False)
-    eval_model_url: str = "https://openrouter.ai/api/v1"
-    eval_model_name: str = "z-ai/glm-5.3-flash"
-    eval_provider: str = ""
     brain_api_key: SecretStr | None = Field(default=None, repr=False)
     brain_base_url: str | None = None
     brain_model: str | None = None
@@ -86,33 +51,6 @@ class EnvConfig(BaseModel):
     locationiq_api_key: SecretStr | None = Field(default=None, repr=False)
     locationiq_forward_url: str = "https://us1.locationiq.com/v1/search"
     locationiq_reverse_url: str = "https://us1.locationiq.com/v1/reverse"
-    batch_provider: str = "aliyun"
-    batch_api_key: SecretStr | None = Field(default=None, repr=False)
-    batch_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    batch_model: str = "qwen3-vl-plus"
-    batch_endpoint: str = "/v1/chat/completions"
-    batch_files_path: str = "/files"
-    batch_batches_path: str = "/batches"
-    batch_auth_header: str = "Authorization"
-    batch_auth_scheme: str = "Bearer"
-    batch_completion_window: str = "24h"
-    batch_poll_interval_seconds: float = 30.0
-    batch_request_timeout_seconds: float = 120.0
-    batch_max_requests_per_file: int = 50_000
-    batch_max_file_mb: float = 500.0
-    batch_max_line_mb: float = 1.0
-    batch_image_mode: str = "base64"
-    batch_image_base_url: str | None = None
-    batch_image_max_edge: int = 2048
-    batch_image_jpeg_quality: int = 90
-    batch_image_min_pixels: int | None = None
-    batch_image_max_pixels: int | None = None
-    batch_max_tokens: int = 1000
-    batch_temperature: float = 0.0
-    batch_enable_thinking: bool | None = None
-    batch_thinking_budget: int | None = None
-    batch_response_format: str | None = None
-    batch_request_extra_json: str = "{}"
     log_level: str = "INFO"
 
 
@@ -164,38 +102,6 @@ def _secret(value: str | None) -> SecretStr | None:
     return SecretStr(value) if value else None
 
 
-def _env_bool(name: str) -> bool | None:
-    value = os.getenv(name)
-    if value is None or not value.strip():
-        return None
-    normalized = value.strip().lower()
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-    if normalized in {"0", "false", "no", "off"}:
-        return False
-    raise ConfigError(f"{name} must be true/false when configured.")
-
-
-def _env_int(name: str, default: int | None) -> int | None:
-    value = os.getenv(name)
-    if value is None or not value.strip():
-        return default
-    try:
-        return int(value)
-    except ValueError as exc:
-        raise ConfigError(f"{name} must be an integer.") from exc
-
-
-def _env_float(name: str, default: float) -> float:
-    value = os.getenv(name)
-    if value is None or not value.strip():
-        return default
-    try:
-        return float(value)
-    except ValueError as exc:
-        raise ConfigError(f"{name} must be a number.") from exc
-
-
 def load_env(env_file: str | Path | None = ".env") -> EnvConfig:
     """Load sensitive values from `.env` and process environment."""
 
@@ -206,10 +112,6 @@ def load_env(env_file: str | Path | None = ".env") -> EnvConfig:
 
 
     return EnvConfig(
-        eval_api_key=_secret(os.getenv("EVAL_API_KEY")),
-        eval_model_url=os.getenv("EVAL_MODEL_URL") or "https://openrouter.ai/api/v1",
-        eval_model_name=os.getenv("EVAL_MODEL_NAME") or "z-ai/glm-5.3-flash",
-        eval_provider=(os.getenv("EVAL_PROVIDER") or "").strip(),
         brain_api_key=_secret(os.getenv("BRAIN_API_KEY")),
         brain_base_url=os.getenv("BRAIN_BASE_URL") or None,
         brain_model=os.getenv("BRAIN_MODEL") or None,
@@ -226,33 +128,6 @@ def load_env(env_file: str | Path | None = ".env") -> EnvConfig:
         locationiq_api_key=_secret(os.getenv("LOCATIONIQ_KEY")),
         locationiq_forward_url=os.getenv("FORWARD_GEOCODING_URL") or "https://us1.locationiq.com/v1/search",
         locationiq_reverse_url=os.getenv("REVERSE_GEOCODING_URL") or "https://us1.locationiq.com/v1/reverse",
-        batch_provider=(os.getenv("BATCH_PROVIDER") or "aliyun").strip().lower(),
-        batch_api_key=_secret(os.getenv("BATCH_API_KEY")),
-        batch_base_url=os.getenv("BATCH_BASE_URL") or "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        batch_model=os.getenv("BATCH_MODEL") or "qwen3-vl-plus",
-        batch_endpoint=os.getenv("BATCH_ENDPOINT") or "/v1/chat/completions",
-        batch_files_path=os.getenv("BATCH_FILES_PATH") or "/files",
-        batch_batches_path=os.getenv("BATCH_BATCHES_PATH") or "/batches",
-        batch_auth_header=os.getenv("BATCH_AUTH_HEADER") or "Authorization",
-        batch_auth_scheme=os.getenv("BATCH_AUTH_SCHEME", "Bearer"),
-        batch_completion_window=os.getenv("BATCH_COMPLETION_WINDOW") or "24h",
-        batch_poll_interval_seconds=_env_float("BATCH_POLL_INTERVAL_SECONDS", 30.0),
-        batch_request_timeout_seconds=_env_float("BATCH_REQUEST_TIMEOUT_SECONDS", 120.0),
-        batch_max_requests_per_file=_env_int("BATCH_MAX_REQUESTS_PER_FILE", 50_000),
-        batch_max_file_mb=_env_float("BATCH_MAX_FILE_MB", 500.0),
-        batch_max_line_mb=_env_float("BATCH_MAX_LINE_MB", 1.0),
-        batch_image_mode=(os.getenv("BATCH_IMAGE_MODE") or "base64").strip().lower(),
-        batch_image_base_url=os.getenv("BATCH_IMAGE_BASE_URL") or None,
-        batch_image_max_edge=_env_int("BATCH_IMAGE_MAX_EDGE", 2048) or 0,
-        batch_image_jpeg_quality=_env_int("BATCH_IMAGE_JPEG_QUALITY", 90),
-        batch_image_min_pixels=_env_int("BATCH_IMAGE_MIN_PIXELS", None),
-        batch_image_max_pixels=_env_int("BATCH_IMAGE_MAX_PIXELS", None),
-        batch_max_tokens=_env_int("BATCH_MAX_TOKENS", 1000),
-        batch_temperature=_env_float("BATCH_TEMPERATURE", 0.0),
-        batch_enable_thinking=_env_bool("BATCH_ENABLE_THINKING"),
-        batch_thinking_budget=_env_int("BATCH_THINKING_BUDGET", None),
-        batch_response_format=os.getenv("BATCH_RESPONSE_FORMAT") or None,
-        batch_request_extra_json=os.getenv("BATCH_REQUEST_EXTRA_JSON") or "{}",
         log_level=os.getenv("LOG_LEVEL", "INFO"),
     )
 

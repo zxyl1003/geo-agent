@@ -23,12 +23,6 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 memory = ["chromadb>=0.5"]
-visual = [
-  "torch>=2.1",
-  "transformers>=4.40",
-  "numpy>=1.24",
-  "opencv-python-headless>=4.8",
-]
 
 [tool.setuptools.packages.find]
 include = ["geoagent*"]

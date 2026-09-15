@@ -1,15 +1,41 @@
-# geo_agent_system
+# ExpGeoLoc
 
-`geo_agent_system` is a lightweight Python framework for a human-in-the-loop, multi-agent geolocation reasoning system. It supports real OpenAI-compatible LLM/VLM calls, Serper Web search, Serper Places/Baidu Maps POI search. All model calls and paid tools require real API keys; missing keys produce a clear error or make the affected tool unavailable to the Brain.
+Official implementation of **“ExpGeoLoc: Guiding Tool-Augmented Image
+Geo-localization Agents with Cross-Task Experience.”**
 
-## Goals
+ExpGeoLoc is an experience-guided, tool-augmented agent for image
+geo-localization. A multimodal reasoning agent analyzes the image, retrieves
+relevant cross-task experience, calls search, POI, geocoding, and map
+verification tools when needed, and returns a hierarchical location with WGS84
+coordinates. A separate experience agent distills reusable strategies and
+failure warnings from completed localization trajectories, then merges and
+deduplicates them into a persistent experience library.
 
-- Decouple Agent, Tool, Workflow, and State.
-- Keep sensitive values in `.env`; keep YAML configs limited to non-sensitive behavior.
-- Support interactive single-image localization and batch localization.
-- Store visual cues, OCR, hypotheses, evidence, tool calls, tool results, uncertainty, and final answer in one `GeoLocalizationState`.
-- Use `react` as the default LLM-driven workflow: the Brain agent decides whether to call a tool, ask the user, or finalize.
-- Return the best supported location granularity, from exact coordinates down to city, region, country, continent, or unknown.
+## Highlights
+
+- Cross-task experience learning from three independent runs over the GeoExp7K
+  `learning` split.
+- Experience retrieval at reasoning checkpoints without updating the frozen
+  library during evaluation.
+- Tool-augmented localization with Web search, POI search, geocoding, visual
+  reanalysis, map tiles, and official Google/Baidu street-view APIs.
+- Single-image inference and reproducible evaluation on GeoExp7K, Im2GPS3K,
+  and IMAGEO-Bench dataset2.
+- Complete state traces containing visual cues, hypotheses, evidence, tool
+  calls, resource usage, uncertainty, and final coordinates.
+
+## Data, Experience Library, and Examples
+
+| Resource | Download | Description |
+| --- | --- | --- |
+| GeoExp7K dataset | [Baidu Netdisk (code: `xbxr`)](https://pan.baidu.com/s/17wpiaDFg5ZiermPFtOBp5g?pwd=xbxr) | Full `learning` and `test` splits used by this repository. |
+| Released experience library | [Baidu Netdisk (code: `fz6i`)](https://pan.baidu.com/s/1TKP4gepjlfJ1DzFTF12GTg?pwd=fz6i) | Curated and deduplicated SQLite/Chroma experience library. |
+| Five successful examples | [`examples/geoexp7k_test/`](examples/geoexp7k_test/) | GeoExp7K-test images localized within 1 km, with ground truth and predictions. |
+
+The experience library is hosted separately because its SQLite database is
+larger than GitHub's single-file limit. See
+[`experience/README.md`](experience/README.md) for the expected directory
+layout and evaluation command.
 
 ## Layout
 
@@ -19,7 +45,7 @@
 - `geoagent/models/`: LLM/VLM clients for OpenAI-compatible endpoints.
 - `geoagent/tools/`: vision, search, POI, geocoding, and map-verification tools.
 - `geoagent/agents/`: multimodal Brain and experience-management agents.
-- `geoagent/memory/`: SQLite/Chroma experience storage, retrieval, reflection, and consolidation.
+- `geoagent/memory/`: SQLite/Chroma experience storage, retrieval, reflection, and consolidation (the internal module name is retained for compatibility).
 - `geoagent/workflows/`: ReAct workflow orchestration.
 - `scripts/`: exactly three CLI entry points for offline experience learning,
   online dataset inference, and single-image inference.
@@ -157,12 +183,12 @@ python scripts/run_dataset_eval.py --datasets geoexp7k-test --experience-mode re
 
 ## Experience Library
 
-The optional memory subsystem learns reusable geolocation strategies and failure
+The experience subsystem learns reusable geolocation strategies and failure
 warnings, not place-specific facts. SQLite is authoritative and Chroma is the
-required local persistent retrieval index whenever memory is enabled. Chroma
+required local persistent retrieval index whenever experience is enabled. Chroma
 initialization, write, and query failures stop the run instead of silently
-changing retrieval behavior. Memory is disabled by default so baseline runs
-remain comparable.
+changing retrieval behavior. Experience retrieval and writing are disabled by
+default so baseline runs remain comparable.
 
 Use `retrieve_only` for frozen-library evaluation. In `retrieve_only` and `full`,
 the React workflow retrieves stored strategy memories directly through
@@ -172,11 +198,13 @@ either checkpoint independently under `memory_checkpoints` in
 decision in the same workflow step. Set both flags to `false` to disable retrieval
 for the task.
 
-`MemoryManagerAgent` reviews each completed verified episode and may propose one
-reusable strategy memory. Deterministic code validates the proposal, merges it
-into a sufficiently similar memory of the same type, or writes it directly as a
-new memory. There is no activation, dormancy, forgetting, archival, or periodic
-maintenance. Brain reports the IDs of memories that affected a decision so
+The experience agent (`MemoryManagerAgent` in code) reviews each completed
+verified episode and may propose one reusable strategy. Deterministic code
+validates the proposal, merges it into a sufficiently similar experience of the
+same type, or writes it directly as a new entry. There is no activation,
+dormancy, forgetting, archival, or periodic
+maintenance. The reasoning agent reports the IDs of experience entries that
+affected a decision so
 retrieval, return-to-Brain, and citation remain available for post-hoc analysis.
 
 Because the simplified store has a new schema, start new experiments with an

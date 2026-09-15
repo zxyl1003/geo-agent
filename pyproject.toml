@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "geo-agent-system"
 version = "0.1.0"
-description = "Human-in-the-loop multi-agent geolocation reasoning system"
+description = "Official implementation of ExpGeoLoc: experience-guided tool-augmented image geo-localization"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

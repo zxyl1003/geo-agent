@@ -5,19 +5,17 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
-import re
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import requests
 
-from geoagent.core.coordinates import normalize_to_wgs84, wgs84_to_bd09mc
+from geoagent.core.coordinates import normalize_to_wgs84
 from geoagent.core.registry import tool_registry
 from geoagent.models.vlm_client import brain_credentials_configured
 from geoagent.tools.base import BaseTool
 from geoagent.tools.maps.imagery_common import (
-    browser_headers,
     cache_dir_for,
     compare_with_vlm,
     compose_contact_sheet,
@@ -34,7 +32,10 @@ class StreetViewVerifyTool(BaseTool):
     SUPPORTED_PROVIDERS = {"google", "baidu"}
 
     def is_available(self, state: Any = None) -> bool:
-        return brain_credentials_configured(self.app_config)
+        has_streetview_key = bool(
+            self.app_config.env.google_maps_api_key or self.app_config.env.baidu_maps_api_key
+        )
+        return brain_credentials_configured(self.app_config) and has_streetview_key
 
     def run(self, **kwargs: Any):
         map_provider = str(kwargs.get("map_provider", "")).strip().lower()
@@ -56,6 +57,7 @@ class StreetViewVerifyTool(BaseTool):
         radius_m = max(5, min(500, radius_m))
         headings = self._headings(kwargs.get("headings"))
         pitch = int(kwargs.get("pitch", 0))
+        pitch = max(-90, min(90, pitch)) if map_provider == "google" else max(0, min(90, pitch))
         fov = int(kwargs.get("fov", kwargs.get("fovy", 90)))
         fov = max(10, min(120, fov))
         task_id = str(kwargs.get("task_id") or "manual")
@@ -231,109 +233,99 @@ class StreetViewVerifyTool(BaseTool):
         radius_m: int,
         pano_id: Any | None = None,
     ) -> dict[str, Any]:
-        if provider == "google" and pano_id:
-            return {
-                "available": True,
-                "provider": "google_streetview_unofficial",
-                "pano_id": str(pano_id),
-                "lat": lat,
-                "lon": lon,
-                "coordinate_system": "WGS84",
-                "status": "provided_pano_id",
-            }
         if provider == "google":
-            return self._fetch_google_metadata(lat=lat, lon=lon, radius_m=radius_m)
-        return self._fetch_baidu_metadata(lat=lat, lon=lon)
+            return self._fetch_google_metadata(lat=lat, lon=lon, radius_m=radius_m, pano_id=pano_id)
+        return self._fetch_baidu_metadata(lat=lat, lon=lon, pano_id=pano_id)
 
-    def _fetch_google_metadata(self, lat: float, lon: float, radius_m: int) -> dict[str, Any]:
+    def _fetch_google_metadata(
+        self,
+        lat: float,
+        lon: float,
+        radius_m: int,
+        pano_id: Any | None = None,
+    ) -> dict[str, Any]:
+        api_key = self.app_config.env.google_maps_api_key
+        if not api_key:
+            raise RuntimeError("GOOGLE_MAPS_API_KEY is required for Google Street View Static API.")
         radius = max(5, min(500, int(radius_m)))
-        url = (
-            "https://maps.googleapis.com/maps/api/js/GeoPhotoService.SingleImageSearch"
-            f"?pb=!1m5!1sapiv3!5sUS!11m2!1m1!1b0!2m4!1m2!3d{lat}!4d{lon}!2d{radius}"
-            "!3m10!2m2!1sen!2sGB!9m1!1e2!11m4!1m3!1e2!2b1!3e2"
-            "!4m10!1e1!1e2!1e3!1e4!1e8!1e6!5m1!1e2!6m1!1e2"
-            "&callback=_xdc_._geoagent"
+        params: dict[str, Any] = {"key": api_key.get_secret_value()}
+        if pano_id:
+            params["pano"] = str(pano_id)
+        else:
+            params["location"] = f"{lat},{lon}"
+            params["radius"] = radius
+        url = self._signed_google_url(
+            "https://maps.googleapis.com/maps/api/streetview/metadata",
+            params,
         )
-        response = requests.get(url, timeout=45, headers=browser_headers("https://www.google.com/maps/"))
+        response = requests.get(url, timeout=45)
         if not response.ok:
             raise RuntimeError(f"HTTP {response.status_code}: {response.text[:200]}")
-        matches = re.findall(
-            r'\[[0-9]+,"(.+?)"\].+?\[\[null,null,(-?[0-9]+(?:\.[0-9]+)?),(-?[0-9]+(?:\.[0-9]+)?)',
-            response.text,
-        )
-        seen: set[str] = set()
-        panoramas = []
-        for pano_id, pano_lat, pano_lon in matches:
-            if pano_id in seen:
-                continue
-            seen.add(pano_id)
-            panoramas.append(
-                {
-                    "pano_id": pano_id,
-                    "lat": float(pano_lat),
-                    "lon": float(pano_lon),
-                    "coordinate_system": "WGS84",
-                }
-            )
-        if not panoramas:
+        payload = response.json()
+        status = str(payload.get("status") or "UNKNOWN_ERROR").upper()
+        if status in {"ZERO_RESULTS", "NOT_FOUND"}:
             return {
                 "available": False,
-                "provider": "google_streetview_unofficial",
-                "status": "ZERO_RESULTS",
+                "provider": "google_streetview_static_api",
+                "status": status,
                 "lat": lat,
                 "lon": lon,
                 "coordinate_system": "WGS84",
-                "raw_preview": response.text[:500],
+                "raw": payload,
             }
-        top = panoramas[0]
+        if status != "OK":
+            message = str(payload.get("error_message") or "request failed")
+            raise RuntimeError(f"Google Street View Static API returned {status}: {message}")
+        location = payload.get("location") or {}
         return {
             "available": True,
-            "provider": "google_streetview_unofficial",
-            "status": "OK",
-            "pano_id": top["pano_id"],
-            "lat": top["lat"],
-            "lon": top["lon"],
+            "provider": "google_streetview_static_api",
+            "status": status,
+            "pano_id": payload.get("pano_id"),
+            "lat": float(location.get("lat", lat)),
+            "lon": float(location.get("lng", lon)),
             "coordinate_system": "WGS84",
-            "panorama_count": len(panoramas),
-            "raw": {"panoramas": panoramas[:8]},
+            "date": payload.get("date"),
+            "copyright": payload.get("copyright"),
+            "raw": payload,
         }
 
-    def _fetch_baidu_metadata(self, lat: float, lon: float) -> dict[str, Any]:
-        mc_x, mc_y = wgs84_to_bd09mc(lon, lat)
-        qs_url = f"https://mapsv0.bdimg.com/?qt=qsdata&x={mc_x}&y={mc_y}"
-        response = requests.get(qs_url, timeout=45)
-        if not response.ok:
-            raise RuntimeError(f"HTTP {response.status_code}: {response.text[:200]}")
-        qs_payload = response.json()
-        content = qs_payload.get("content") or {}
-        pano_id = content.get("id")
-        if not pano_id:
-            return {
-                "available": False,
-                "provider": "baidu_streetview",
-                "status": "ZERO_RESULTS",
-                "bd09mc": {"x": mc_x, "y": mc_y},
-                "raw": qs_payload,
-            }
-        s_content: dict[str, Any] = {}
-        if pano_id:
-            sdata_url = f"https://mapsv0.bdimg.com/?qt=sdata&sid={pano_id}&pc=1"
-            sdata_response = requests.get(sdata_url, timeout=45)
-            if sdata_response.ok:
-                sdata_payload = sdata_response.json()
-                s_content = sdata_payload.get("content")[0] or {}
-        return {
-            "available": bool(pano_id),
-            "provider": "baidu_streetview",
-            "status": "OK" if pano_id else "NO_PANO_ID",
-            "pano_id": pano_id,
+    def _fetch_baidu_metadata(
+        self,
+        lat: float,
+        lon: float,
+        pano_id: Any | None = None,
+    ) -> dict[str, Any]:
+        metadata = {
+            "pano_id": str(pano_id) if pano_id else None,
             "lat": lat,
             "lon": lon,
             "coordinate_system": "WGS84",
-            "bd09mc": {"x": mc_x, "y": mc_y},
-            "street_name": content.get("RoadName"),
-            "raw": {"qsdata": qs_payload, "sdata": s_content},
         }
+        url = self._baidu_streetview_image_url(metadata, heading=0, pitch=0, fov=90, width=10, height=10)
+        response = requests.get(url, timeout=45)
+        if not response.ok:
+            raise RuntimeError(f"HTTP {response.status_code}: {response.text[:200]}")
+        content_type = str(response.headers.get("Content-Type") or "").lower()
+        if content_type.startswith("image/"):
+            return {
+                "available": True,
+                "provider": "baidu_panorama_static_api",
+                "status": "OK",
+                **metadata,
+            }
+        payload = response.json()
+        status = str(payload.get("status") or payload.get("code") or "UNKNOWN_ERROR")
+        if status in {"402", "405"}:
+            return {
+                "available": False,
+                "provider": "baidu_panorama_static_api",
+                "status": status,
+                **metadata,
+                "raw": payload,
+            }
+        message = str(payload.get("message") or payload.get("msg") or "request failed")
+        raise RuntimeError(f"Baidu Panorama Static API returned {status}: {message}")
 
     def _download_views(
         self,
@@ -348,18 +340,8 @@ class StreetViewVerifyTool(BaseTool):
         for heading in headings:
             path = street_dir / f"{provider}_streetview_h{heading}_p{pitch}_f{fov}.jpg"
             label = f"{provider} streetview heading {heading}"
-            if provider == "google":
-                url = self._download_google_unofficial_view(
-                    metadata=metadata,
-                    heading=heading,
-                    pitch=pitch,
-                    fov=fov,
-                    path=path,
-                )
-            else:
-                url = self._streetview_image_url(provider, metadata, heading, pitch, fov)
-                headers = browser_headers("https://map.baidu.com/") if provider == "baidu" else None
-                download_image(url, path, headers=headers)
+            url = self._streetview_image_url(provider, metadata, heading, pitch, fov)
+            download_image(url, path)
             images.append(
                 {
                     "provider": provider,
@@ -383,57 +365,54 @@ class StreetViewVerifyTool(BaseTool):
     ) -> str:
         pano_id = str(metadata.get("pano_id") or "")
         if provider == "google":
+            api_key = self.app_config.env.google_maps_api_key
+            if not api_key:
+                raise RuntimeError("GOOGLE_MAPS_API_KEY is required for Google Street View Static API.")
+            params: dict[str, Any] = {
+                "size": "640x640",
+                "heading": heading,
+                "pitch": pitch,
+                "fov": fov,
+                "key": api_key.get_secret_value(),
+                "return_error_code": "true",
+            }
             if pano_id:
-                return self._google_unofficial_image_urls(pano_id, heading, pitch, fov)[0]
-            raise RuntimeError("Google unofficial street-view download requires a pano_id.")
+                params["pano"] = pano_id
+            else:
+                params["location"] = f"{metadata['lat']},{metadata['lon']}"
+            return self._signed_google_url(
+                "https://maps.googleapis.com/maps/api/streetview",
+                params,
+            )
+        return self._baidu_streetview_image_url(metadata, heading, pitch, fov)
 
-        if not pano_id:
-            raise RuntimeError("Baidu street-view pano_id is missing.")
-        return (
-            "https://mapsv0.bdimg.com/"
-            f"?qt=pr3d&fovy={fov}&quality=90&panoid={pano_id}"
-            f"&heading={heading}&pitch={pitch}&width=1024&height=1024"
-        )
-
-    def _download_google_unofficial_view(
+    def _baidu_streetview_image_url(
         self,
         metadata: dict[str, Any],
         heading: int,
         pitch: int,
         fov: int,
-        path: Path,
+        width: int = 1024,
+        height: int = 512,
     ) -> str:
+        api_key = self.app_config.env.baidu_maps_api_key
+        if not api_key:
+            raise RuntimeError("BAIDU_MAPS_API_KEY is required for Baidu Panorama Static API.")
+        params: dict[str, Any] = {
+            "ak": api_key.get_secret_value(),
+            "width": width,
+            "height": height,
+            "coordtype": "wgs84ll",
+            "heading": heading,
+            "pitch": pitch,
+            "fov": fov,
+        }
         pano_id = str(metadata.get("pano_id") or "")
-        if not pano_id:
-            raise RuntimeError("Google unofficial street-view download requires a pano_id.")
-
-        errors: list[str] = []
-        headers = browser_headers("https://www.google.com/maps/")
-        for url in self._google_unofficial_image_urls(pano_id, heading, pitch, fov):
-            try:
-                download_image(url, path, headers=headers)
-                return url
-            except Exception as exc:  # noqa: BLE001
-                errors.append(f"{self._safe_url(url)} -> {exc}")
-        raise RuntimeError("Google unofficial street-view image download failed: " + " ; ".join(errors))
-
-    def _google_unofficial_image_urls(self, pano_id: str, heading: int, pitch: int, fov: int) -> list[str]:
-        common = f"panoid={pano_id}&w=1024&h=768&yaw={heading}&pitch={pitch}"
-        return [
-            (
-                "https://streetviewpixels-pa.googleapis.com/v1/thumbnail?"
-                f"{common}&cb_client=maps_sv.tactile.gps&thumbfov={fov}"
-            ),
-            (
-                "https://streetviewpixels-pa.googleapis.com/v1/thumbnail?"
-                f"{common}&cb_client=maps_sv.tactile&thumbfov={fov}"
-            ),
-            (
-                "https://geo2.ggpht.com/cbk?"
-                f"panoid={pano_id}&output=thumbnail&cb_client=maps_sv.tactile.gps&thumb=2"
-                f"&w=1024&h=768&yaw={heading}&pitch={pitch}&thumbfov={fov}"
-            ),
-        ]
+        if pano_id:
+            params["panoid"] = pano_id
+        else:
+            params["location"] = f"{metadata['lon']},{metadata['lat']}"
+        return f"https://api.map.baidu.com/panorama/v2?{urlencode(params)}"
 
     def _signed_google_url(self, base_url: str, params: dict[str, Any]) -> str:
         query = urlencode(params)
@@ -459,7 +438,7 @@ class StreetViewVerifyTool(BaseTool):
         parsed = urlparse(url)
         pairs = []
         for key, value in parse_qsl(parsed.query, keep_blank_values=True):
-            if key.lower() in {"key", "signature"}:
+            if key.lower() in {"ak", "key", "signature"}:
                 pairs.append((key, "***"))
             else:
                 pairs.append((key, value))

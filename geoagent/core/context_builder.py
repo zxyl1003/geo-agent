@@ -606,7 +606,7 @@ class ContextBuilder:
                 "reason": "why map tiles can test this candidate",
             },
             "streetview_verify": {
-                "map_provider": self._provider_options("map_verification"),
+                "map_provider": self._streetview_provider_options(),
                 "lat": "candidate latitude",
                 "lon": "candidate longitude",
                 "coordinate_system": "input coordinate system, default wgs84",
@@ -624,4 +624,12 @@ class ContextBuilder:
         # Only offer providers whose API key is configured, so the Brain never
         # selects a provider that cannot run.
         providers = sorted(available_map_providers(self.app_config, capability))
+        return " | ".join(providers)
+
+    def _streetview_provider_options(self) -> str:
+        providers = []
+        if self.app_config.env.baidu_maps_api_key:
+            providers.append("baidu")
+        if self.app_config.env.google_maps_api_key:
+            providers.append("google")
         return " | ".join(providers)

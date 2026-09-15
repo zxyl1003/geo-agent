@@ -11,7 +11,6 @@ from geoagent.core.coordinates import (
     google_xyz_from_wgs84,
     normalize_coordinate_fields,
     wgs84_to_bd09,
-    wgs84_to_bd09mc,
 )
 from geoagent.core.config import load_app_config
 from geoagent.core.retrieval_cache import RetrievalCache
@@ -19,11 +18,21 @@ from geoagent.tools.registry import build_tools
 
 
 class FakeResponse:
-    def __init__(self, data, ok=True, status_code=200, text='{"status": 0}'):
+    def __init__(
+        self,
+        data,
+        ok=True,
+        status_code=200,
+        text='{"status": 0}',
+        content=b"",
+        content_type="application/json",
+    ):
         self._data = data
         self.ok = ok
         self.status_code = status_code
         self.text = text
+        self.content = content
+        self.headers = {"Content-Type": content_type}
 
     def json(self):
         return self._data
@@ -177,34 +186,35 @@ def test_map_tile_verify_uses_roadmap_zoom_range_without_changing_satellite(monk
     ]
 
 
-def test_baidu_streetview_metadata_queries_bd09mc_coordinates(monkeypatch):
+def test_baidu_streetview_uses_official_panorama_static_api(monkeypatch):
     config = load_app_config(config_dir="configs", env_file=None)
+    config.env.baidu_maps_api_key = SecretStr("baidu-test-key")
     tools = build_tools(config)
     seen_urls = []
 
     def fake_get(url, timeout):
         seen_urls.append(url)
-        if "qt=qsdata" in url:
-            return FakeResponse({"content": {"id": "baidu_pano_1", "RoadName": "Test Road"}})
-        return FakeResponse({"content": [{}]})
+        return FakeResponse({}, content=b"image", content_type="image/jpeg")
 
     monkeypatch.setattr("geoagent.tools.maps.streetview_verify_tool.requests.get", fake_get)
     lat = 39.9087
     lon = 116.3975
     metadata = tools["streetview_verify"]._fetch_baidu_metadata(lat=lat, lon=lon)
-    expected_x, expected_y = wgs84_to_bd09mc(lon, lat)
 
     assert metadata["available"] is True
     assert metadata["coordinate_system"] == "WGS84"
-    assert metadata["bd09mc"]["x"] == expected_x
-    assert metadata["bd09mc"]["y"] == expected_y
-    assert "qt=qsdata" in seen_urls[0]
-    assert f"x={expected_x}" in seen_urls[0]
-    assert f"y={expected_y}" in seen_urls[0]
+    assert metadata["provider"] == "baidu_panorama_static_api"
+    assert seen_urls[0].startswith("https://api.map.baidu.com/panorama/v2?")
+    assert "ak=baidu-test-key" in seen_urls[0]
+    assert "coordtype=wgs84ll" in seen_urls[0]
+    assert "location=116.3975%2C39.9087" in seen_urls[0]
+    assert "mapsv0.bdimg.com" not in seen_urls[0]
 
 
-def test_google_streetview_image_url_uses_unofficial_thumbnail_endpoint():
+def test_google_streetview_image_url_uses_official_static_api():
     config = load_app_config(config_dir="configs", env_file=None)
+    config.env.google_maps_api_key = SecretStr("google-test-key")
+    config.env.google_maps_url_signing_secret = None
     tools = build_tools(config)
 
     url = tools["streetview_verify"]._streetview_image_url(
@@ -215,31 +225,39 @@ def test_google_streetview_image_url_uses_unofficial_thumbnail_endpoint():
         fov=100,
     )
 
-    assert url.startswith("https://streetviewpixels-pa.googleapis.com/v1/thumbnail?")
-    assert "maps.googleapis.com/maps/api/streetview" not in url
-    assert "panoid=test_pano_id" in url
-    assert "yaw=90" in url
+    assert url.startswith("https://maps.googleapis.com/maps/api/streetview?")
+    assert "pano=test_pano_id" in url
+    assert "heading=90" in url
+    assert "key=google-test-key" in url
+    assert "return_error_code=true" in url
 
 
-def test_google_streetview_metadata_uses_unofficial_panoid_search(monkeypatch):
+def test_google_streetview_metadata_uses_official_metadata_api(monkeypatch):
     config = load_app_config(config_dir="configs", env_file=None)
+    config.env.google_maps_api_key = SecretStr("google-test-key")
+    config.env.google_maps_url_signing_secret = None
     tools = build_tools(config)
     seen = {}
 
-    def fake_get(url, timeout, headers):
+    def fake_get(url, timeout):
         seen["url"] = url
-        seen["headers"] = headers
         return FakeResponse(
-            {},
-            text='callback([[1,"google_panoid_123"],null,null,[[null,null,35.6586,139.7454]]]);',
+            {
+                "status": "OK",
+                "pano_id": "google_panoid_123",
+                "location": {"lat": 35.6586, "lng": 139.7454},
+                "date": "2025-01",
+            }
         )
 
     monkeypatch.setattr("geoagent.tools.maps.streetview_verify_tool.requests.get", fake_get)
     metadata = tools["streetview_verify"]._fetch_google_metadata(35.65858, 139.74543, 80)
 
-    assert "GeoPhotoService.SingleImageSearch" in seen["url"]
-    assert "key=" not in seen["url"]
-    assert metadata["provider"] == "google_streetview_unofficial"
+    assert seen["url"].startswith("https://maps.googleapis.com/maps/api/streetview/metadata?")
+    assert "location=35.65858%2C139.74543" in seen["url"]
+    assert "radius=80" in seen["url"]
+    assert "key=google-test-key" in seen["url"]
+    assert metadata["provider"] == "google_streetview_static_api"
     assert metadata["available"] is True
     assert metadata["pano_id"] == "google_panoid_123"
     assert metadata["coordinate_system"] == "WGS84"

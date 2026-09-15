@@ -1,0 +1,24 @@
+models:
+  # Primary multimodal ReAct controller. It receives the source image on the initial turn.
+  # Override with BRAIN_* in .env when Brain should use a stronger/different model.
+  brain:
+    provider: openai-compatible
+    model_name: gpt-4.1-mini
+    temperature: 0.15
+    max_tokens: 6000
+    thinking:
+      enabled: false
+      reasoning_effort: low
+
+  # Experience advice and episode abstraction model. MEMORY_MANAGER_* overrides
+  # this role; when omitted, credentials and model fall back to BRAIN_*.
+  memory_manager:
+    provider: openai-compatible
+    model_name: gpt-4.1-mini
+    temperature: 0.0
+    # The review JSON output is small; keeping max_tokens low reserves more of
+    # the context window for the episode review input.
+    max_tokens: 2048
+    thinking:
+      enabled: false
+      reasoning_effort: low

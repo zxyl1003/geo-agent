@@ -1,0 +1,7 @@
+agents:
+  brain:
+    class_path: geoagent.agents.brain_agent.BrainAgent
+    description: Extracts initial visual evidence, chooses tools, and finalizes the geolocation answer.
+  memory_manager:
+    class_path: geoagent.agents.memory_manager_agent.MemoryManagerAgent
+    description: Filters retrieved experience for online guidance and reviews completed episodes for offline learning.

@@ -1,0 +1,53 @@
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.pytest_tmp/
+.pytest_tmp*/
+.tmp/
+tmp/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+htmlcov/
+.coverage
+
+# Virtual environments
+.venv/
+venv/
+
+# Local IDE/editor/tooling state
+.idea/
+.vscode/
+.claude/
+.cursor/
+.qwen/
+*.swp
+*.swo
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Local outputs and logs
+outputs/
+output/
+logs/
+papers/
+.codex/
+conversation_export.md
+*.log
+demo_output*.txt
+demo_logs*.txt
+
+# Local benchmark/dataset files. Dataset collection code under this path was
+# removed; downloaded benchmark data should stay outside commits.
+datasets/
+datasets/MAPBench-V2
+back/

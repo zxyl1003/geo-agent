@@ -1,0 +1,47 @@
+project:
+  name: geo_agent_system
+  environment: local
+
+logging:
+  level: INFO
+  format: "{time:YYYY-MM-DD HH:mm:ss} | {level} | {name}:{function}:{line} | {message}"
+  colorize: true
+  debug_model_stream: true
+  file_enabled: true
+  file_root: logs
+  file_name: log.txt
+
+brain_conversation:
+  context_window: 65536
+  max_input_ratio: 0.90
+  safety_margin_tokens: 3072
+  preserve_recent_rounds: 3
+  summary_max_tokens: 2048
+
+runtime:
+  persist_traces: false
+  trace_output_dir: outputs/results/traces
+
+search_cache:
+  enabled: true
+  path: outputs/cache/web_cache/search_cache.sqlite3
+
+memory:
+  # External geolocation experience memory. Keep disabled for baseline runs.
+  enabled: false
+  # off | retrieve_only | learn_only | full
+  mode: full
+  # storage_dir is supplied explicitly by --memory-dir for each experiment.
+  retrieve_top_k: 3
+  # Reflection: at learning time, reverse-geocode the ground-truth coordinates
+  # to enrich the episode review with the true administrative context, so
+  # failures like "branch POI name used as an anchor" can be attributed. The
+  # recovered place names are diagnosis-only and blocked from memory content.
+  reflection:
+    enrich_ground_truth_context: true
+  # Only near-duplicate memories with matching merge dimensions are merged.
+  merge_similarity_threshold: 0.90
+  chroma:
+    # Required when memory is enabled. Initialization, write, and query errors
+    # stop the run instead of falling back to SQLite lexical retrieval.
+    enabled: true

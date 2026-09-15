@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=./workflows.schema.json
+default_workflow: react
+
+workflows:
+  react:
+    class_path: geoagent.workflows.react_workflow.ReactWorkflow
+    # Optional hard cost budget; null lets Brain decide when to stop.
+    max_steps: null
+    experience_scheduling:
+      initial_check: true
+    provider_policy:
+      default_map_provider: google
+      mainland_china_map_provider: baidu
+      mainland_china_aliases:
+        - china
+        - prc
+        - mainland china
+        - people's republic of china
+        - cn
+        - "\u4e2d\u56fd"
+        - "\u4e2d\u570b"
+      mainland_china_provider_prefixes:
+        - baidu
+      supported_map_providers:
+        poi_search:
+          - google
+          - baidu
+        map_verification:
+          - google
+          - baidu
+      provider_labels:
+        google: Google
+        google_maps: Google
+        serper_places: Google/Serper
+        baidu: Baidu
+        baidu_maps: Baidu

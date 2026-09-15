@@ -1,0 +1,81 @@
+tools:
+  ocr:
+    enable: true
+    class_path: geoagent.tools.vision.ocr_tool.OCRTool
+    cost_level: low
+    max_calls_per_task: 3
+
+  visual_reanalysis:
+    enable: true
+    class_path: geoagent.tools.vision.visual_reanalysis_tool.VisualReanalysisTool
+    cost_level: high
+    max_calls_per_task: 3
+
+  web_search:
+    enable: true
+    class_path: geoagent.tools.search.web_search_tool.WebSearchTool
+    cost_level: medium
+    max_calls_per_task: 6
+
+  webpage_read:
+    enable: true
+    class_path: geoagent.tools.search.webpage_read_tool.WebpageReadTool
+    cost_level: low
+    max_calls_per_task: 6
+    timeout_seconds: 15
+    max_redirects: 4
+    max_bytes: 2000000
+    max_chars: 12000
+
+  # Unified geocode facade. Routes internally: mainland China -> Baidu Maps;
+  # international -> LocationIQ.
+  geocode:
+    enable: true
+    class_path: geoagent.tools.search.geocode_tool.GeocodeTool
+    cost_level: high
+    max_calls_per_task: 5
+
+  # Unified reverse-geocode facade. Same routing as geocode.
+  reverse_geocode:
+    enable: true
+    class_path: geoagent.tools.search.reverse_geocode_tool.ReverseGeocodeTool
+    cost_level: high
+    max_calls_per_task: 5
+
+  # Internal provider implementations behind the geocode/reverse_geocode
+  # facades. These are hidden from the Brain (never exposed in available_tools).
+  google_maps_geocode:
+    enable: true
+    class_path: geoagent.tools.search.google_maps_geocode_tool.GoogleMapsGeocodeTool
+    cost_level: high
+    max_calls_per_task: 5
+
+  baidu_maps_geocode:
+    enable: true
+    class_path: geoagent.tools.search.baidu_maps_geocode_tool.BaiduMapsGeocodeTool
+    cost_level: high
+    max_calls_per_task: 5
+
+  locationiq_geocode:
+    enable: true
+    class_path: geoagent.tools.search.locationiq_geocode_tool.LocationIQGeocodeTool
+    cost_level: low
+    max_calls_per_task: 5
+
+  map_tile_verify:
+    enable: true
+    class_path: geoagent.tools.maps.map_tile_verify_tool.MapTileVerifyTool
+    cost_level: low
+    max_calls_per_task: 3
+
+  streetview_verify:
+    enable: true
+    class_path: geoagent.tools.maps.streetview_verify_tool.StreetViewVerifyTool
+    cost_level: high
+    max_calls_per_task: 3
+
+  poi_search:
+    enable: true
+    class_path: geoagent.tools.poi.poi_search_tool.POISearchTool
+    cost_level: high
+    max_calls_per_task: 5

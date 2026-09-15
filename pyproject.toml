@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "geo-agent-system"
+version = "0.1.0"
+description = "Human-in-the-loop multi-agent geolocation reasoning system"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "pydantic>=2.6",
+  "python-dotenv>=1.0",
+  "pyyaml>=6.0",
+  "loguru>=0.7",
+  "requests>=2.31",
+  "pycountry>=26.2.16",
+  "beautifulsoup4>=4.12",
+  "Pillow>=10.0",
+  "mapbox-vector-tile>=2.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+memory = ["chromadb>=0.5"]
+visual = [
+  "torch>=2.1",
+  "transformers>=4.40",
+  "numpy>=1.24",
+  "opencv-python-headless>=4.8",
+]
+
+[tool.setuptools.packages.find]
+include = ["geoagent*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

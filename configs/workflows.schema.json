@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GeoAgent workflow configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["default_workflow", "workflows"],
+  "properties": {
+    "default_workflow": {
+      "type": "string"
+    },
+    "workflows": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/workflow"
+      }
+    }
+  },
+  "$defs": {
+    "workflow": {
+      "type": "object",
+      "required": ["class_path"],
+      "properties": {
+        "class_path": {
+          "type": "string"
+        },
+        "max_steps": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "experience_scheduling": {
+          "type": "object",
+          "properties": {
+            "initial_check": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "provider_policy": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}
